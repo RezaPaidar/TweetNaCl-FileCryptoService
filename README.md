@@ -1,6 +1,6 @@
 # File Encryption/Decryption using TweetNaCl
 
-![GitHub](https://img.shields.io/github/license/yourusername/your-repo)
+![GitHub](https://img.shields.io/github/license/RezaPaidar/TweetNaCl-FileCryptoService)
 ![.NET](https://img.shields.io/badge/.NET-9.0-blue)
 
 A high-performance file encryption/decryption solution implementing the NaCl (Networking and Cryptography Library) cryptographic primitives via TweetNaCl, optimized for modern .NET applications.
