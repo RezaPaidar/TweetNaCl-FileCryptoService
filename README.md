@@ -56,18 +56,6 @@ await using var stream = new FileStream(
 - Secure key generation
 - Constant-time operations where possible
 
-## Benchmark Results
-
-| Operation       | 1MB File | 100MB File | 1GB File |
-|-----------------|----------|------------|----------|
-| Encryption      | 15ms     | 1.2s       | 12.5s    |
-| Decryption      | 18ms     | 1.4s       | 14.2s    |
-| Key Generation  | 0.3ms    | N/A        | N/A      |
-
-*Tested on i7-1185G7 @ 3.00GHz, NVMe SSD*
-
-
-
 ## Key Highlights of This README:
 
 1. **Professional Presentation**: Badges and clean structure
