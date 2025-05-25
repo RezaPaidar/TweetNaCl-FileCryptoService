@@ -57,7 +57,6 @@ await using var stream = new FileStream(
 - Constant-time operations where possible
 
 ## Benchmark Results
-## Benchmark Results
 
 | Operation       | 1MB File | 100MB File | 1GB File |
 |-----------------|----------|------------|----------|
