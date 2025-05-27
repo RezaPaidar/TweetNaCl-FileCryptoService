@@ -1,8 +1,11 @@
+using FileCryptoService.Service;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+builder.Services.AddScoped<ICryptoService, CryptoService>();
+
 
 builder.Services.AddControllers();
 // Add Swagger services
