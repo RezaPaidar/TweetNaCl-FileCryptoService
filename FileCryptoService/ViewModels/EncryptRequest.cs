@@ -2,8 +2,7 @@
 {
     public class EncryptRequest
     {
-        public IFormFile File { get; set; } = default!;
+        public IFormFile File { get; set; }
         public string PublicKey { get; set; } 
-        public string SecretKey { get; set; } 
     }
 }

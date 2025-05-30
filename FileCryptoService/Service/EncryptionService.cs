@@ -23,30 +23,30 @@ public class CryptoService : ICryptoService
     {
         try
         {
-            var publicKey = Convert.FromBase64String(request.PublicKey);
-            var secretKey = Convert.FromBase64String(request.SecretKey);
+            var recipientPublicKey = Convert.FromBase64String(request.PublicKey);
+            if (recipientPublicKey.Length != TweetNaCl.BoxPublicKeyBytes)
+                return new CryptoResult { Success = false, Message = "Invalid public key length" };
 
-            var inputPath = Path.GetTempFileName();
-            var outputPath = Path.GetTempFileName();
+            using var stream = new MemoryStream();
+            await request.File.CopyToAsync(stream);
+            var fileData = stream.ToArray();
 
-            await using (var stream = new FileStream(inputPath, FileMode.Create))
-            {
-                await request.File.CopyToAsync(stream);
-            }
+            var ephemeralKeyPair = TweetNaCl.CryptoBoxKeypair();
 
-            var result = await _fileEncryptor.EncryptFileAsync(inputPath, outputPath, publicKey, secretKey);
+            var nonce = new byte[TweetNaCl.BoxNonceBytes];
+            TweetNaCl.RandomBytes(nonce);
 
-            var encryptedBytes = await File.ReadAllBytesAsync(outputPath);
-            var base64Result = Convert.ToBase64String(encryptedBytes);
+            var ciphertext = TweetNaCl.CryptoBox(fileData, nonce, recipientPublicKey, ephemeralKeyPair.SecretKey);
 
-            File.Delete(inputPath);
-            File.Delete(outputPath);
+            var output = new byte[ephemeralKeyPair.PublicKey.Length + nonce.Length + ciphertext.Length];
+            Buffer.BlockCopy(ephemeralKeyPair.PublicKey, 0, output, 0, ephemeralKeyPair.PublicKey.Length);
+            Buffer.BlockCopy(nonce, 0, output, ephemeralKeyPair.PublicKey.Length, nonce.Length);
+            Buffer.BlockCopy(ciphertext, 0, output, ephemeralKeyPair.PublicKey.Length + nonce.Length, ciphertext.Length);
 
             return new CryptoResult
             {
                 Success = true,
-                Message = "File encrypted successfully",
-                Data = base64Result
+                EncryptedData = Convert.ToBase64String(output)
             };
         }
         catch (Exception ex)
@@ -67,28 +67,29 @@ public class CryptoService : ICryptoService
     {
         try
         {
-            var publicKey = Convert.FromBase64String(request.PublicKey);
             var secretKey = Convert.FromBase64String(request.SecretKey);
+            if (secretKey.Length != TweetNaCl.BoxSecretKeyBytes)
+                return new CryptoResult { Success = false, Message = "Invalid secret key length" };
+
             var encryptedData = Convert.FromBase64String(request.Base64Data);
 
-            var inputPath = Path.GetTempFileName();
-            var outputPath = Path.GetTempFileName();
+            if (encryptedData.Length < TweetNaCl.BoxPublicKeyBytes + TweetNaCl.BoxNonceBytes)
+                return new CryptoResult { Success = false, Message = "Invalid encrypted data" };
 
-            await File.WriteAllBytesAsync(inputPath, encryptedData);
+            var ephemeralPubKey = new byte[TweetNaCl.BoxPublicKeyBytes];
+            var nonce = new byte[TweetNaCl.BoxNonceBytes];
+            var ciphertext = new byte[encryptedData.Length - (ephemeralPubKey.Length + nonce.Length)];
 
-            await _fileEncryptor.DecryptFileAsync(inputPath, outputPath, publicKey, secretKey);
+            Buffer.BlockCopy(encryptedData, 0, ephemeralPubKey, 0, ephemeralPubKey.Length);
+            Buffer.BlockCopy(encryptedData, ephemeralPubKey.Length, nonce, 0, nonce.Length);
+            Buffer.BlockCopy(encryptedData, ephemeralPubKey.Length + nonce.Length, ciphertext, 0, ciphertext.Length);
 
-            var decryptedBytes = await File.ReadAllBytesAsync(outputPath);
-            var base64Result = Convert.ToBase64String(decryptedBytes);
-
-            File.Delete(inputPath);
-            File.Delete(outputPath);
+            var plaintext = TweetNaCl.CryptoBoxOpen(ciphertext, nonce, ephemeralPubKey, secretKey);
 
             return new CryptoResult
             {
                 Success = true,
-                Message = "File decrypted successfully",
-                Data = base64Result
+                DecryptedData = plaintext
             };
         }
         catch (Exception ex)
@@ -109,17 +110,13 @@ public class CryptoService : ICryptoService
     {
         try
         {
-            var keyPair = _fileEncryptor.GenerateKeyPair();
+            var keyPair = TweetNaCl.CryptoBoxKeypair();
 
             return new CryptoResult
             {
                 Success = true,
-                Message = "Keys generated successfully",
-                Data = JsonSerializer.Serialize(new
-                {
-                    PublicKey = Convert.ToBase64String(keyPair.PublicKey),
-                    SecretKey = Convert.ToBase64String(keyPair.SecretKey)
-                })
+                PublicKey = Convert.ToBase64String(keyPair.PublicKey),
+                SecretKey = Convert.ToBase64String(keyPair.SecretKey)
             };
         }
         catch (Exception ex)

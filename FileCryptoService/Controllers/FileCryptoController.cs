@@ -33,8 +33,8 @@ namespace FileCryptoService.Controllers
             if (request.File == null || request.File.Length == 0)
                 return BadRequest("No file uploaded");
 
-            if (string.IsNullOrEmpty(request.PublicKey) || string.IsNullOrEmpty(request.SecretKey))
-                return BadRequest("Both public and secret keys are required");
+            if (string.IsNullOrEmpty(request.PublicKey))
+                return BadRequest("The public key is required");
 
             var result = await _cryptoService.EncryptFileAsync(request);
 
@@ -50,8 +50,8 @@ namespace FileCryptoService.Controllers
             if (string.IsNullOrEmpty(request.Base64Data))
                 return BadRequest("No data provided");
 
-            if (string.IsNullOrEmpty(request.PublicKey) || string.IsNullOrEmpty(request.SecretKey))
-                return BadRequest("Both public and secret keys are required");
+            if (string.IsNullOrEmpty(request.SecretKey))
+                return BadRequest("The secret key is required");
 
             var result = await _cryptoService.DecryptFileAsync(request);
 
