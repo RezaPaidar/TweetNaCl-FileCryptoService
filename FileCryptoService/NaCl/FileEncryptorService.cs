@@ -42,15 +42,36 @@
             {
                 await outputStream.WriteAsync(nonce.AsMemory(0, nonce.Length));
 
-                int bytesRead;
-                while ((bytesRead = await inputStream.ReadAsync(_encryptionBuffer.AsMemory(0, ChunkSize))) > 0)
-                {
-                    var dataToEncrypt = _encryptionBuffer.AsSpan(0, bytesRead).ToArray();
-                    var encryptedChunk = TweetNaCl.CryptoBox(dataToEncrypt, nonce, publicKey, secretKey);
+                 byte[] rentedInputBuffer = _arrayPool.Rent(ChunkSize);
+                byte[] tempMessageBuffer = null;
 
-                    BinaryPrimitives.WriteInt32LittleEndian(_lengthBuffer.AsSpan(), encryptedChunk.Length);
-                    await outputStream.WriteAsync(_lengthBuffer.AsMemory(0, 4));
-                    await outputStream.WriteAsync(encryptedChunk.AsMemory(0, encryptedChunk.Length));
+                try
+                {
+                    int bytesRead;
+                    while ((bytesRead = await inputStream.ReadAsync(_encryptionBuffer.AsMemory(0, ChunkSize))) > 0)
+                    {
+                        if (tempMessageBuffer == null || tempMessageBuffer.Length < bytesRead)
+                        {
+                            if (tempMessageBuffer != null)
+                                _arrayPool.Return(tempMessageBuffer);
+                            tempMessageBuffer = _arrayPool.Rent(bytesRead);
+                        }
+
+                        Buffer.BlockCopy(rentedInputBuffer, 0, tempMessageBuffer, 0, bytesRead);
+
+                        var encryptedChunk = TweetNaCl.CryptoBox(tempMessageBuffer.AsSpan(0, bytesRead).ToArray(), nonce, publicKey, secretKey);
+
+
+                        BinaryPrimitives.WriteInt32LittleEndian(_lengthBuffer.AsSpan(), encryptedChunk.Length);
+                        await outputStream.WriteAsync(_lengthBuffer.AsMemory(0, 4));
+                        await outputStream.WriteAsync(encryptedChunk.AsMemory(0, encryptedChunk.Length));
+                    }
+                }
+                finally
+                {
+                    _arrayPool.Return(rentedInputBuffer);
+                    if (tempMessageBuffer != null)
+                        _arrayPool.Return(tempMessageBuffer);
                 }
             }
 
@@ -82,16 +103,19 @@
 
             byte[] lengthBuffer = new byte[4];
             byte[] encryptedChunkBuffer = null;
+            byte[] tempChunkCopy = null;
 
             try
             {
                 while (inputStream.Position < inputStream.Length)
                 {
+                    // Read chunk length
                     if (await inputStream.ReadAsync(lengthBuffer, 0, 4) != 4)
                         throw new InvalidDataException("Unexpected end of file while reading chunk length");
 
                     int chunkLength = BitConverter.ToInt32(lengthBuffer, 0);
 
+                    // Resize buffer if needed
                     if (encryptedChunkBuffer == null || encryptedChunkBuffer.Length < chunkLength)
                     {
                         if (encryptedChunkBuffer != null)
@@ -99,12 +123,21 @@
                         encryptedChunkBuffer = ArrayPool<byte>.Shared.Rent(chunkLength);
                     }
 
+                    // Read encrypted chunk
                     if (await inputStream.ReadAsync(encryptedChunkBuffer, 0, chunkLength) != chunkLength)
                         throw new InvalidDataException("Unexpected end of file while reading encrypted chunk");
 
-                    var encryptedChunk = new byte[chunkLength];
-                    Buffer.BlockCopy(encryptedChunkBuffer, 0, encryptedChunk, 0, chunkLength);
-                    var decryptedChunk = TweetNaCl.CryptoBoxOpen(encryptedChunk, nonce, publicKey, secretKey);
+                    // Avoid allocating a new array for CryptoBoxOpen input
+                    if (tempChunkCopy == null || tempChunkCopy.Length < chunkLength)
+                    {
+                        if (tempChunkCopy != null)
+                            ArrayPool<byte>.Shared.Return(tempChunkCopy);
+                        tempChunkCopy = ArrayPool<byte>.Shared.Rent(chunkLength);
+                    }
+
+                    Buffer.BlockCopy(encryptedChunkBuffer, 0, tempChunkCopy, 0, chunkLength);
+
+                    var decryptedChunk = TweetNaCl.CryptoBoxOpen(tempChunkCopy.AsSpan(0, chunkLength).ToArray(), nonce, publicKey, secretKey);
 
                     await outputStream.WriteAsync(decryptedChunk, 0, decryptedChunk.Length);
                 }
@@ -113,6 +146,8 @@
             {
                 if (encryptedChunkBuffer != null)
                     ArrayPool<byte>.Shared.Return(encryptedChunkBuffer);
+                if (tempChunkCopy != null)
+                    ArrayPool<byte>.Shared.Return(tempChunkCopy);
             }
         }
         public KeyPair GenerateKeyPair()
